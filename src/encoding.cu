@@ -30,6 +30,7 @@
 #include <tiny-cuda-nn/encoding.h>
 
 #include <tiny-cuda-nn/encodings/composite.h>
+#include <tiny-cuda-nn/encodings/repeated_composite.h>
 #include <tiny-cuda-nn/encodings/empty.h>
 #include <tiny-cuda-nn/encodings/frequency.h>
 #include <tiny-cuda-nn/encodings/grid.h>
@@ -56,6 +57,10 @@ auto register_builtin_encodings() {
 
 	register_encoding<T>(factories, "Composite", [](uint32_t n_dims_to_encode, const json& encoding) {
 		return new CompositeEncoding<T>{encoding, n_dims_to_encode};
+	});
+
+	register_encoding<T>(factories, "RepeatedComposite", [](uint32_t n_dims_to_encode, const json& encoding) {
+		return new RepeatedCompositeEncoding<T>{encoding, n_dims_to_encode, encoding.value("n_repetitions", 1u)};
 	});
 
 	register_encoding<T>(factories, "Empty", [](uint32_t n_dims_to_encode, const json& encoding) {
