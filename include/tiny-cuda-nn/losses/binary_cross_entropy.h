@@ -4,6 +4,8 @@
 #include <tiny-cuda-nn/common_device.h>
 #include <tiny-cuda-nn/loss.h>
 
+namespace tcnn {
+
 template <typename T>
 __global__ void binary_cross_entropy_loss(
 	const uint32_t n_elements,
@@ -43,43 +45,25 @@ __global__ void binary_cross_entropy_loss(
 }
 
 template <typename T>
-class BinaryCrossEntropyLoss : public tcnn::Loss<T>
-{
+class BinaryCrossEntropyLoss : public Loss<T> {
 public:
 	void evaluate(
 		cudaStream_t stream,
-		const uint32_t stride,
-		const uint32_t dims,
 		const float loss_scale,
-		const tcnn::GPUMatrix<T> & prediction,
-		const tcnn::GPUMatrix<float> & target,
-		tcnn::GPUMatrix<float> & values,
-		tcnn::GPUMatrix<T> & gradients,
-		const tcnn::GPUMatrix<float> * data_pdf = nullptr) const override
+		const GPUMatrix<T>& prediction,
+		const GPUMatrix<float>& target,
+		GPUMatrix<float>& values,
+		GPUMatrix<T>& gradients,
+		const GPUMatrix<float>* data_pdf = nullptr) const override
 	{
-		(void)data_pdf;
+		const uint32_t dims = target.m();
+		const uint32_t stride = prediction.m();
 
-		if (prediction.n() != target.n())
-		{
-			throw std::runtime_error(
-				std::string("Prediction and target don't have matching batch size ") + std::to_string(prediction.n())
-				+ "!=" + std::to_string(target.n()));
-		}
-
-		if (prediction.m() != stride)
-		{
-			throw std::runtime_error(
-				std::string("Prediction does not have appropriate dimensions ") + std::to_string(prediction.m())
-				+ "!=" + std::to_string(stride));
-		}
-
-		if (target.m() != dims)
-		{
-			throw std::runtime_error(
-				std::string("Target does not have appropriate dimensions ") + std::to_string(target.m())
-				+ "!=" + std::to_string(dims));
-		}
-
+		CHECK_THROW(prediction.n() == target.n());
+		CHECK_THROW(values.m() == stride);
+		CHECK_THROW(gradients.m() == stride);
+		CHECK_THROW(!data_pdf || data_pdf->m() == dims);
+		
 		tcnn::linear_kernel(
 			binary_cross_entropy_loss<T>,
 			0,
@@ -105,3 +89,5 @@ public:
 		};
 	}
 };
+
+}
