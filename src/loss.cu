@@ -37,6 +37,7 @@
 #include <tiny-cuda-nn/losses/relative_l2.h>
 #include <tiny-cuda-nn/losses/relative_l2_luminance.h>
 #include <tiny-cuda-nn/losses/cross_entropy.h>
+#include <tiny-cuda-nn/losses/binary_cross_entropy.h>
 #include <tiny-cuda-nn/losses/variance_is.h>
 
 namespace tcnn {
@@ -62,6 +63,7 @@ auto register_builtin_losses() {
 	register_loss<T>(factories, "Mape", [](const json& loss) { return new MapeLoss<T>{}; });
 	register_loss<T>(factories, "Smape", [](const json& loss) { return new SmapeLoss<T>{}; });
 	register_loss<T>(factories, "CrossEntropy", [](const json& loss) { return new CrossEntropyLoss<T>{}; });
+	register_loss<T>(factories, "BinaryCrossEntropy", [](const json& loss) { return new BinaryCrossEntropy<T>{}; });
 	register_loss<T>(factories, "Variance", [](const json& loss) { return new VarianceIsLoss<T>{}; });
 
 	return factories;
