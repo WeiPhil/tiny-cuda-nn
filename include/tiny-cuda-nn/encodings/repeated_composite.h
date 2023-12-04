@@ -1,33 +1,3 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright notice, this list of
- *       conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright notice, this list of
- *       conditions and the following disclaimer in the documentation and/or other materials
- *       provided with the distribution.
- *     * Neither the name of the NVIDIA CORPORATION nor the names of its contributors may be used
- *       to endorse or promote products derived from this software without specific prior written
- *       permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL NVIDIA CORPORATION BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TOR (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-/** @file   repeated_composite.h
- *  @author Thomas Müller, NVIDIA
- *  @brief  The composite encoding allows applying different, nested encodings
- *          to different dimensions of the input.
- */
-
 #pragma once
 
 #include <tiny-cuda-nn/common.h>
@@ -118,7 +88,6 @@ public:
 				dims_encoded_so_far += m_nested[i]->padded_output_width();
 			}
 		} else {
-			throw std::runtime_error{"RepeatedCompositeEncoding: only supports ReductionType::Concatenation"};
 			uint32_t alignment = required_output_alignment();
 			for (const auto& nested : m_nested) {
 				nested->set_alignment(alignment);
@@ -147,11 +116,11 @@ public:
 		auto forward = std::make_unique<ForwardContext>();
 		forward->nested.resize(m_nested.size());
 
-		// GPUMatrixDynamic<T>* reduced_output = output;
-		// if (m_reduction_type != ReductionType::Concatenation) {
-		// 	forward->to_reduce = GPUMatrixDynamic<T>{padded_output_width() * (uint32_t)m_nested.size(), input.n(), stream, preferred_output_layout()};
-		// 	output = &forward->to_reduce;
-		// }
+		GPUMatrixDynamic<T>* reduced_output = output;
+		if (m_reduction_type != ReductionType::Concatenation) {
+			forward->to_reduce = GPUMatrixDynamic<T>{padded_output_width() * (uint32_t)m_nested.size() * m_n_repetitions, input.n(), stream, preferred_output_layout()};
+			output = &forward->to_reduce;
+		}
 
 		uint32_t output_offset = 0;
 
@@ -179,29 +148,27 @@ public:
 				input_offset += input_width;
 				output_offset += output_width;
 			}
-
-			/* code */
 		}
 
-		// if (reduced_output && m_reduction_type != ReductionType::Concatenation) {
-		// 	switch (m_reduction_type) {
-		// 		case ReductionType::Sum: linear_kernel(reduce_sum_forward<T>, 0, stream,
-		// 			input.n(),
-		// 			padded_output_width(),
-		// 			(uint32_t)m_nested.size(),
-		// 			forward->to_reduce.view(),
-		// 			reduced_output->view()
-		// 		); break;
-		// 		case ReductionType::Product: linear_kernel(reduce_product_forward<T>, 0, stream,
-		// 			input.n(),
-		// 			padded_output_width(),
-		// 			(uint32_t)m_nested.size(),
-		// 			forward->to_reduce.view(),
-		// 			reduced_output->view()
-		// 		); break;
-		// 		default: throw std::runtime_error{"RepeatedCompositeEncoding::forward: invalid reduction type."};
-		// 	}
-		// }
+		if (reduced_output && m_reduction_type != ReductionType::Concatenation) {
+			switch (m_reduction_type) {
+				case ReductionType::Sum: linear_kernel(reduce_sum_forward<T>, 0, stream,
+					input.n(),
+					padded_output_width(),
+					(uint32_t)m_nested.size() * m_n_repetitions,
+					forward->to_reduce.view(),
+					reduced_output->view()
+				); break;
+				case ReductionType::Product: linear_kernel(reduce_product_forward<T>, 0, stream,
+					input.n(),
+					padded_output_width(),
+					(uint32_t)m_nested.size() * m_n_repetitions,
+					forward->to_reduce.view(),
+					reduced_output->view()
+				); break;
+				default: throw std::runtime_error{"RepeatedCompositeEncoding::forward: invalid reduction type."};
+			}
+		}
 
 		return forward;
 	}
@@ -226,29 +193,29 @@ public:
 		}
 
 		const GPUMatrixDynamic<T>* dL_dunreduced_output = &dL_doutput;
-		// GPUMatrixDynamic<T> dL_dnested_output;
-		// if (m_reduction_type != ReductionType::Concatenation) {
-		// 	dL_dnested_output = GPUMatrixDynamic<T>{forward.to_reduce.m(), forward.to_reduce.n(), stream, forward.to_reduce.layout()};
-		// 	dL_dunreduced_output = &dL_dnested_output;
-		// 	switch (m_reduction_type) {
-		// 		case ReductionType::Sum: linear_kernel(reduce_sum_backward<T>, 0, stream,
-		// 			input.n(),
-		// 			padded_output_width(),
-		// 			(uint32_t)m_nested.size(),
-		// 			dL_dunreduced_output->view(),
-		// 			dL_doutput.view()
-		// 		); break;
-		// 		case ReductionType::Product: linear_kernel(reduce_product_backward<T>, 0, stream,
-		// 			input.n(),
-		// 			padded_output_width(),
-		// 			(uint32_t)m_nested.size(),
-		// 			forward.to_reduce.view(),
-		// 			dL_dunreduced_output->view(),
-		// 			dL_doutput.view()
-		// 		); break;
-		// 		default: throw std::runtime_error{"RepeatedCompositeEncoding::backward: invalid reduction type."};
-		// 	}
-		// }
+		GPUMatrixDynamic<T> dL_dnested_output;
+		if (m_reduction_type != ReductionType::Concatenation) {
+			dL_dnested_output = GPUMatrixDynamic<T>{forward.to_reduce.m(), forward.to_reduce.n(), stream, forward.to_reduce.layout()};
+			dL_dunreduced_output = &dL_dnested_output;
+			switch (m_reduction_type) {
+				case ReductionType::Sum: linear_kernel(reduce_sum_backward<T>, 0, stream,
+					input.n(),
+					padded_output_width(),
+					(uint32_t)m_nested.size() * m_n_repetitions,
+					dL_dunreduced_output->view(),
+					dL_doutput.view()
+				); break;
+				case ReductionType::Product: linear_kernel(reduce_product_backward<T>, 0, stream,
+					input.n(),
+					padded_output_width(),
+					(uint32_t)m_nested.size() * m_n_repetitions,
+					forward.to_reduce.view(),
+					dL_dunreduced_output->view(),
+					dL_doutput.view()
+				); break;
+				default: throw std::runtime_error{"RepeatedCompositeEncoding::backward: invalid reduction type."};
+			}
+		}
 
 		SyncedMultiStream synced_streams{stream, m_nested.size()};
 
@@ -325,7 +292,8 @@ public:
 	}
 
 	uint32_t required_output_alignment() const override {
-		uint32_t alignment = 1;
+		// uint32_t alignment = 1; 
+		uint32_t alignment = m_n_repetitions;
 		for (const auto& nested : m_nested) {
 			alignment = lcm(alignment, nested->required_output_alignment());
 		}
